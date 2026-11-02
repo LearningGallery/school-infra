@@ -1,0 +1,151 @@
+# Infra pull request checks. Nothing here can change AWS: static analysis, then `terraform plan` with a
+# read-only role. The single required check for the ruleset is "plan / gate".
+# Layout: written for the split school-infra repository (repo root = school-infra/).
+name: plan
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: plan-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+      - name: terraform validate (every root module)
+        run: |
+          for d in bootstrap/*/ live/*/; do
+            echo "::group::$d"
+            terraform -chdir="$d" init -backend=false -input=false >/dev/null
+            terraform -chdir="$d" validate
+            echo "::endgroup::"
+          done
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: v0.65.0
+      - name: tflint
+        run: |
+          tflint --init
+          tflint --recursive --format compact
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # avoids rate limits when downloading the AWS ruleset
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      - name: Checkov (built-in and custom policies)
+        run: |
+          pip install "checkov==3.4.2"
+          checkov --config-file .checkov.yaml -d .
+      - name: Policy unit tests (Conftest)
+        run: |
+          docker run --rm -v "$PWD/policies/conftest:/policy:ro" \
+            openpolicyagent/conftest@sha256:0e77cdf7c1fcde035f3c579e4aaa6664ee2a8be5777eaa9af9f520cdd02280c0 \
+            verify --policy /policy
+      - name: Plan-time policy check (no AWS account needed)
+        run: |
+          policies/run.sh regulated
+          policies/run.sh production
+
+  plan:
+    name: plan (${{ matrix.env }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Environment-scoped OIDC: the plan role trusts only this environment and can only read.
+    environment: plan-${{ matrix.env }}
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, staging, production]
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }} # read-only
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: terraform plan
+        working-directory: live/${{ matrix.env }}
+        env:
+          STATE_BUCKET: ${{ vars.STATE_BUCKET }}
+          STATE_KMS_KEY_ARN: ${{ vars.STATE_KMS_KEY_ARN }}
+          AWS_REGION_VAR: ${{ vars.AWS_REGION }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${STATE_BUCKET}" \
+            -backend-config="key=${{ matrix.env }}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION_VAR}" \
+            -backend-config="kms_key_id=${STATE_KMS_KEY_ARN}" \
+            -backend-config="use_lockfile=true" -backend-config="encrypt=true"
+          terraform plan -input=false -lock-timeout=5m -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+          terraform show -json tfplan > plan.json
+      - name: Policy check on the real plan
+        working-directory: live/${{ matrix.env }}
+        run: |
+          docker run --rm -v "$PWD:/work" -v "$GITHUB_WORKSPACE/policies/conftest:/policy:ro" -w /work \
+            openpolicyagent/conftest@sha256:0e77cdf7c1fcde035f3c579e4aaa6664ee2a8be5777eaa9af9f520cdd02280c0 \
+            test plan.json --policy /policy --namespace main
+      - name: Comment the plan on the pull request
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('live/${{ matrix.env }}/plan.txt', 'utf8');
+            const body = `### terraform plan: \`${{ matrix.env }}\`\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan.slice(0, 60000)}\n\`\`\`\n</details>`;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+  cost:
+    # Optional: needs an Infracost API key. Enable with the repository variable INFRACOST_ENABLED=true.
+    name: cost estimate
+    if: ${{ vars.INFRACOST_ENABLED == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: infracost/actions/setup@a5783eb98adc93aa7a0049fce0abb06fdd30770a # v5.0.1
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+      - name: Estimate production
+        run: infracost breakdown --path live/production --format table
+
+  gate:
+    name: gate
+    if: always()
+    needs: [static, plan]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail unless every required job succeeded
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
+      - name: All required jobs succeeded
+        run: echo ok

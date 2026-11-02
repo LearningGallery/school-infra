@@ -1,0 +1,42 @@
+# Apply on merge to main, one environment at a time, each behind its own approval.
+# Nothing applies from a pull request, and nothing applies without a reviewer on the GitHub Environment.
+name: apply
+
+on:
+  push:
+    branches: [main]
+    paths: ["modules/**", "live/**"]
+
+concurrency:
+  group: apply
+  cancel-in-progress: false # never interrupt an apply
+
+permissions:
+  contents: read
+
+jobs:
+  dev:
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/_apply.yml
+    with:
+      env: dev
+
+  staging:
+    needs: dev
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/_apply.yml
+    with:
+      env: staging
+
+  production:
+    needs: staging
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/_apply.yml
+    with:
+      env: production

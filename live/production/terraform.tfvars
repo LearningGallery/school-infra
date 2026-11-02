@@ -1,0 +1,17 @@
+# production: NAT per AZ, Multi-AZ database, deletion protection, private API endpoint.
+# A private endpoint means Terraform/Helm run from a runner inside the VPC or over VPN/Direct Connect.
+account_id             = "333333333333" # placeholder: replace
+azs                    = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+single_nat_gateway     = false
+endpoint_public_access = false
+node_capacity_type     = "ON_DEMAND"
+node_instance_types    = ["m6i.large"]
+node_min_size          = 3
+node_desired_size      = 3
+node_max_size          = 9
+
+rds_instance_class        = "db.m6g.large"
+rds_multi_az              = true
+rds_backup_retention_days = 14
+rds_deletion_protection   = true
+rds_skip_final_snapshot   = false

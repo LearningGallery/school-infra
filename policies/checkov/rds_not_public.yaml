@@ -1,0 +1,13 @@
+metadata:
+  id: "CKV2_SCHOOL_3"
+  name: "RDS instances must not be publicly accessible"
+  category: "NETWORKING"
+scope:
+  provider: "aws"
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_db_instance"
+  attribute: "publicly_accessible"
+  operator: "equals"
+  value: false
