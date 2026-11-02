@@ -1,0 +1,7 @@
+# Copy to backend.hcl (git-ignored) and fill in. State is per environment, in that environment's account.
+bucket       = "<YOUR_STATE_BUCKET>"          # created by bootstrap/state
+key          = "regulated/terraform.tfstate"
+region       = "eu-west-1"
+encrypt      = true
+kms_key_id   = "<STATE_KMS_KEY_ARN>"
+use_lockfile = true                          # S3 native locking, no DynamoDB table needed

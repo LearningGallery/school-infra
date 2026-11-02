@@ -1,0 +1,8 @@
+framework:
+  - terraform
+skip-path:
+  - ".*/\\.terraform/.*"
+external-checks-dir:
+  - policies/checkov
+compact: true
+quiet: true

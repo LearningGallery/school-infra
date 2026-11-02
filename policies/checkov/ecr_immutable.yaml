@@ -1,0 +1,13 @@
+metadata:
+  id: "CKV2_SCHOOL_2"
+  name: "ECR repositories must use immutable tags (deploy by digest, tags are names)"
+  category: "SUPPLY_CHAIN"
+scope:
+  provider: "aws"
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_ecr_repository"
+  attribute: "image_tag_mutability"
+  operator: "equals"
+  value: "IMMUTABLE"

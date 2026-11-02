@@ -1,0 +1,71 @@
+# Drift detection: someone changed AWS by hand. A scheduled plan that finds changes opens an issue.
+name: drift
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: drift (${{ matrix.env }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: plan-${{ matrix.env }}
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, staging, production]
+    permissions:
+      id-token: write
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: terraform plan -detailed-exitcode
+        id: plan
+        working-directory: live/${{ matrix.env }}
+        env:
+          STATE_BUCKET: ${{ vars.STATE_BUCKET }}
+          STATE_KMS_KEY_ARN: ${{ vars.STATE_KMS_KEY_ARN }}
+          AWS_REGION_VAR: ${{ vars.AWS_REGION }}
+          TARGET_ENV: ${{ matrix.env }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${STATE_BUCKET}" \
+            -backend-config="key=${TARGET_ENV}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION_VAR}" \
+            -backend-config="kms_key_id=${STATE_KMS_KEY_ARN}" \
+            -backend-config="use_lockfile=true" -backend-config="encrypt=true"
+          set +e
+          terraform plan -input=false -lock=false -detailed-exitcode -no-color > plan.txt
+          code=$?
+          echo "exitcode=${code}" >> "$GITHUB_OUTPUT"
+          [ "$code" -eq 1 ] && exit 1
+          exit 0
+      - name: Open an issue when drift is found
+        if: steps.plan.outputs.exitcode == '2'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('live/${{ matrix.env }}/plan.txt', 'utf8').slice(0, 60000);
+            await github.rest.issues.create({
+              ...context.repo,
+              title: `Drift detected in ${{ matrix.env }}`,
+              labels: ['drift'],
+              body: `A scheduled plan found changes nobody merged.\n\n\`\`\`\n${plan}\n\`\`\``,
+            });

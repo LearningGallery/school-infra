@@ -1,0 +1,114 @@
+variable "env" {
+  description = "Environment name: dev, staging, production, regulated."
+  type        = string
+}
+
+variable "region" {
+  type = string
+}
+
+variable "account_id" {
+  description = "AWS account ID of this environment (one account per environment in real customers)."
+  type        = string
+}
+
+variable "azs" {
+  description = "Three availability zones in var.region."
+  type        = list(string)
+}
+
+variable "vpc_cidr" {
+  type    = string
+  default = "10.0.0.0/16"
+}
+
+variable "single_nat_gateway" {
+  type    = bool
+  default = true
+}
+
+variable "kubernetes_version" {
+  type    = string
+  default = "1.33"
+}
+
+variable "endpoint_public_access" {
+  type    = bool
+  default = false
+}
+
+variable "public_access_cidrs" {
+  type    = list(string)
+  default = []
+}
+
+variable "admin_role_arns" {
+  description = "IAM roles with cluster-admin (SSO permission set role, break-glass role)."
+  type        = list(string)
+  default     = []
+}
+
+variable "node_instance_types" {
+  type    = list(string)
+  default = ["t3.medium"]
+}
+
+variable "node_capacity_type" {
+  type    = string
+  default = "ON_DEMAND"
+}
+
+variable "node_min_size" {
+  type    = number
+  default = 2
+}
+
+variable "node_desired_size" {
+  type    = number
+  default = 2
+}
+
+variable "node_max_size" {
+  type    = number
+  default = 4
+}
+
+variable "rds_instance_class" {
+  type    = string
+  default = "db.t4g.micro"
+}
+
+variable "rds_multi_az" {
+  type    = bool
+  default = false
+}
+
+variable "rds_backup_retention_days" {
+  type    = number
+  default = 7
+}
+
+variable "rds_deletion_protection" {
+  type    = bool
+  default = false
+}
+
+variable "rds_skip_final_snapshot" {
+  type    = bool
+  default = true
+}
+
+variable "interface_endpoints" {
+  type    = list(string)
+  default = ["ecr.api", "ecr.dkr", "sts", "secretsmanager", "logs"]
+}
+
+variable "alert_emails" {
+  type    = list(string)
+  default = []
+}
+
+variable "tags" {
+  type    = map(string)
+  default = {}
+}

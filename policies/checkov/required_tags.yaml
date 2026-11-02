@@ -1,0 +1,16 @@
+metadata:
+  id: "CKV2_SCHOOL_1"
+  name: "Core resources must define tags (cost allocation, ownership, data classification)"
+  category: "GENERAL_SECURITY"
+scope:
+  provider: "aws"
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_db_instance"
+    - "aws_eks_cluster"
+    - "aws_vpc"
+    - "aws_kms_key"
+    - "aws_ecr_repository"
+  attribute: "tags"
+  operator: "exists"
