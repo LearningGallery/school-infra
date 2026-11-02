@@ -15,3 +15,6 @@ rds_multi_az              = true
 rds_backup_retention_days = 14
 rds_deletion_protection   = true
 rds_skip_final_snapshot   = false
+
+# Keeps ECR, STS, Secrets Manager and Logs traffic on the AWS network (about 7 USD per endpoint per AZ per month).
+interface_endpoints = ["ecr.api", "ecr.dkr", "sts", "secretsmanager", "logs"]
