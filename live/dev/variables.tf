@@ -74,3 +74,9 @@ variable "alert_emails" {
   type    = list(string)
   default = []
 }
+
+variable "interface_endpoints" {
+  description = "Private interface endpoints for AWS APIs. Each costs about 7 USD/month per AZ, so labs leave this empty and rely on NAT."
+  type        = list(string)
+  default     = []
+}

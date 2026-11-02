@@ -99,8 +99,9 @@ variable "rds_skip_final_snapshot" {
 }
 
 variable "interface_endpoints" {
-  type    = list(string)
-  default = ["ecr.api", "ecr.dkr", "sts", "secretsmanager", "logs"]
+  description = "Interface endpoints to create. Each is billed per AZ per hour; empty relies on NAT."
+  type        = list(string)
+  default     = []
 }
 
 variable "alert_emails" {

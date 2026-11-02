@@ -42,6 +42,7 @@ module "platform" {
   rds_deletion_protection   = var.rds_deletion_protection
   rds_skip_final_snapshot   = var.rds_skip_final_snapshot
   alert_emails              = var.alert_emails
+  interface_endpoints       = var.interface_endpoints
 }
 
 # The Helm provider needs the cluster, so it is configured from the platform module's outputs.
