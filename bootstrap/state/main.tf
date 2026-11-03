@@ -50,6 +50,7 @@ resource "aws_kms_key" "state" {
   enable_key_rotation     = true
   deletion_window_in_days = 30
   policy                  = data.aws_iam_policy_document.key.json
+  tags                    = { project = "devops-zero-to-hero", purpose = "terraform-state" }
 }
 
 resource "aws_s3_bucket" "state" {
