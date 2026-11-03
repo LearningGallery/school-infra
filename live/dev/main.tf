@@ -42,6 +42,7 @@ module "platform" {
   rds_deletion_protection   = var.rds_deletion_protection
   rds_skip_final_snapshot   = var.rds_skip_final_snapshot
   alert_emails              = var.alert_emails
+  monthly_budget_usd        = var.monthly_budget_usd
   interface_endpoints       = var.interface_endpoints
 }
 

@@ -80,3 +80,9 @@ variable "interface_endpoints" {
   type        = list(string)
   default     = []
 }
+
+variable "monthly_budget_usd" {
+  description = "Monthly cost budget for this environment in USD (0 disables). Budgets alert, they do not stop spend."
+  type        = number
+  default     = 0
+}
