@@ -36,6 +36,18 @@ variable "github_subject_prefix" {
   default     = ""
 }
 
+variable "create_oidc_provider" {
+  description = "Create the account's GitHub OIDC provider. Set false when one already exists (AWS allows one per URL)."
+  type        = bool
+  default     = true
+}
+
+variable "existing_provider_arn" {
+  description = "ARN of the existing GitHub OIDC provider when create_oidc_provider is false."
+  type        = string
+  default     = ""
+}
+
 module "ecr" {
   source           = "../../modules/ecr"
   repository_names = ["school-backend", "school-frontend"]
@@ -47,6 +59,8 @@ module "github_oidc" {
   github_org            = var.github_org
   github_repo           = var.github_repo
   github_subject_prefix = var.github_subject_prefix
+  create_oidc_provider  = var.create_oidc_provider
+  existing_provider_arn = var.existing_provider_arn
   ecr_repository_arns   = values(module.ecr.repository_arns)
   tags                  = { project = "devops-zero-to-hero" }
 }
