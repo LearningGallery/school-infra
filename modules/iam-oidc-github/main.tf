@@ -1,7 +1,9 @@
 locals {
   provider_arn = var.create_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : var.existing_provider_arn
-  repo         = "${var.github_org}/${var.github_repo}"
-  oidc_host    = "token.actions.githubusercontent.com"
+  # GitHub's default `sub` is "repo:<owner>/<repo>:...". Repositories created with immutable subjects send
+  # "repo:<owner>@<owner-id>/<repo>@<repo-id>:..." instead; pass that prefix as github_subject_prefix.
+  sub_prefix = var.github_subject_prefix != "" ? var.github_subject_prefix : "repo:${var.github_org}/${var.github_repo}"
+  oidc_host  = "token.actions.githubusercontent.com"
 }
 
 # One per AWS account. AWS validates the token signature against GitHub's published keys.
@@ -29,7 +31,7 @@ data "aws_iam_policy_document" "release_trust" {
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_host}:sub"
-      values   = ["repo:${local.repo}:ref:refs/heads/${var.release_branch}"]
+      values   = ["${local.sub_prefix}:ref:refs/heads/${var.release_branch}"]
     }
   }
 }
@@ -85,7 +87,7 @@ data "aws_iam_policy_document" "pull_trust" {
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_host}:sub"
-      values   = [for e in var.pull_environments : "repo:${local.repo}:environment:${e}"]
+      values   = [for e in var.pull_environments : "${local.sub_prefix}:environment:${e}"]
     }
   }
 }

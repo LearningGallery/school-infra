@@ -30,6 +30,12 @@ variable "github_repo" {
   default = "school-app"
 }
 
+variable "github_subject_prefix" {
+  description = "Immutable-subject prefix, e.g. repo:OWNER@OWNER_ID/REPO@REPO_ID (see the module variable). Empty uses github_org/github_repo."
+  type        = string
+  default     = ""
+}
+
 module "ecr" {
   source           = "../../modules/ecr"
   repository_names = ["school-backend", "school-frontend"]
@@ -37,11 +43,12 @@ module "ecr" {
 }
 
 module "github_oidc" {
-  source              = "../../modules/iam-oidc-github"
-  github_org          = var.github_org
-  github_repo         = var.github_repo
-  ecr_repository_arns = values(module.ecr.repository_arns)
-  tags                = { project = "devops-zero-to-hero" }
+  source                = "../../modules/iam-oidc-github"
+  github_org            = var.github_org
+  github_repo           = var.github_repo
+  github_subject_prefix = var.github_subject_prefix
+  ecr_repository_arns   = values(module.ecr.repository_arns)
+  tags                  = { project = "devops-zero-to-hero" }
 }
 
 output "release_role_arn" {
