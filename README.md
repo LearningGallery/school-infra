@@ -20,3 +20,5 @@ Repo 3 of 3: Terraform / OpenTofu infrastructure. Validate-only in the learning 
 make infra-check     # fmt + validate every root module   (from the repository root)
 make policy-check    # Checkov, tflint, Conftest, plan-time policy tests (needs docker)
 ```
+
+<!-- test: opens a pull request to exercise the plan workflow -->
