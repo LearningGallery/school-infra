@@ -15,3 +15,6 @@ rds_multi_az              = false
 rds_backup_retention_days = 1
 rds_deletion_protection   = false
 rds_skip_final_snapshot   = true
+
+# Illustrative budget: set it from your own cost expectations. Needs at least one alert_emails entry to take effect.
+monthly_budget_usd = 150

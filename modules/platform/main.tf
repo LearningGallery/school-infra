@@ -77,3 +77,12 @@ module "observability" {
   alert_emails   = var.alert_emails
   tags           = local.tags
 }
+
+module "governance" {
+  source = "../governance"
+
+  name               = var.env
+  monthly_budget_usd = var.monthly_budget_usd
+  alert_emails       = var.alert_emails
+  tags               = local.tags
+}

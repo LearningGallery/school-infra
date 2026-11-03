@@ -50,8 +50,9 @@ module "platform" {
   rds_deletion_protection   = true
   rds_skip_final_snapshot   = false
 
-  admin_role_arns = var.admin_role_arns
-  alert_emails    = var.alert_emails
+  admin_role_arns    = var.admin_role_arns
+  alert_emails       = var.alert_emails
+  monthly_budget_usd = var.monthly_budget_usd
   tags = {
     DataClassification = "student-personal-data"
     DataResidency      = join(",", var.approved_regions)

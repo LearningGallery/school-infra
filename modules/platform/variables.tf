@@ -113,3 +113,9 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "monthly_budget_usd" {
+  description = "Monthly cost budget for this environment in USD. 0 disables budget alerts."
+  type        = number
+  default     = 0
+}

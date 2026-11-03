@@ -112,9 +112,22 @@ resource "helm_release" "prometheus_stack" {
 
   values = [yamlencode({
     prometheus = { prometheusSpec = {
-      retention                               = "7d"
+      retention = "7d"
+      # Pick up monitors and rules from Git (school-gitops), not only those labelled with this Helm release.
       serviceMonitorSelectorNilUsesHelmValues = false
+      podMonitorSelectorNilUsesHelmValues     = false
+      ruleSelectorNilUsesHelmValues           = false
     } }
-    grafana = { enabled = true }
+    alertmanager = { alertmanagerSpec = {
+      # Alert routing lives in Git as AlertmanagerConfig objects. None = their routes see alerts from every namespace.
+      alertmanagerConfigSelector          = {}
+      alertmanagerConfigNamespaceSelector = {}
+      alertmanagerConfigMatcherStrategy   = { type = "None" }
+    } }
+    grafana = {
+      enabled = true
+      # Load dashboards from ConfigMaps labelled grafana_dashboard=1 in any namespace.
+      sidecar = { dashboards = { enabled = true, label = "grafana_dashboard", searchNamespace = "ALL" } }
+    }
   })]
 }

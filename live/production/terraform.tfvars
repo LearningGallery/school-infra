@@ -18,3 +18,6 @@ rds_skip_final_snapshot   = false
 
 # Keeps ECR, STS, Secrets Manager and Logs traffic on the AWS network (about 7 USD per endpoint per AZ per month).
 interface_endpoints = ["ecr.api", "ecr.dkr", "sts", "secretsmanager", "logs"]
+
+# Illustrative budget: set it from your own cost expectations. Needs at least one alert_emails entry to take effect.
+monthly_budget_usd = 1500
