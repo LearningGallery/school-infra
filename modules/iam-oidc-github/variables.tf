@@ -8,6 +8,17 @@ variable "github_repo" {
   type        = string
 }
 
+variable "github_subject_prefix" {
+  description = "Exact `sub` prefix GitHub sends for this repository, for repositories with immutable subjects, for example repo:OWNER@OWNER_ID/REPO@REPO_ID. Empty uses repo:github_org/github_repo. Read it with: gh api repos/OWNER/REPO/actions/oidc/customization/sub"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.github_subject_prefix == "" || (startswith(var.github_subject_prefix, "repo:") && !strcontains(var.github_subject_prefix, "*") && !strcontains(var.github_subject_prefix, "?"))
+    error_message = "github_subject_prefix must start with repo: and contain no wildcards."
+  }
+}
+
 variable "release_branch" {
   description = "Branch the release workflow runs on. The release role trusts only this ref."
   type        = string
