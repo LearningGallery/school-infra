@@ -16,13 +16,37 @@ variable "owner" {
   default     = "example-org" # placeholder
 }
 
+# Review strictness. The defaults suit a single-maintainer repository, where nobody else can approve
+# (a PR author cannot approve their own PR, so 1 required approval would block every merge). With two or
+# more maintainers, turn these on: approvals = 1, code owner review, last-push approval and signatures.
+variable "required_approvals" {
+  type    = number
+  default = 0
+}
+
+variable "require_code_owner_review" {
+  type    = bool
+  default = false
+}
+
+variable "require_last_push_approval" {
+  type    = bool
+  default = false
+}
+
+variable "require_signatures" {
+  description = "Require signed commits (every contributor needs commit signing set up)."
+  type        = bool
+  default     = false
+}
+
 variable "repositories" {
-  description = "Repositories to protect, with the status check names their CI reports."
+  description = "Repositories to protect, with the status check names their CI reports. GitHub reports a job's name, not workflow / job: each repository's CI ends in a job named gate."
   type        = map(list(string))
   default = {
-    "school-app"    = ["pr-checks / gate"]
-    "school-gitops" = ["validate / kustomize"]
-    "school-infra"  = ["plan / gate"]
+    "school-app"    = ["gate"]
+    "school-gitops" = ["gate"]
+    "school-infra"  = ["gate"]
   }
 }
 
@@ -49,13 +73,13 @@ resource "github_repository_ruleset" "main" {
     deletion                = true
     non_fast_forward        = true
     required_linear_history = true
-    required_signatures     = true
+    required_signatures     = var.require_signatures
 
     pull_request {
-      required_approving_review_count   = 1
-      require_code_owner_review         = true
+      required_approving_review_count   = var.required_approvals
+      require_code_owner_review         = var.require_code_owner_review
       dismiss_stale_reviews_on_push     = true
-      require_last_push_approval        = true
+      require_last_push_approval        = var.require_last_push_approval
       required_review_thread_resolution = true
     }
 
