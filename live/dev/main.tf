@@ -65,12 +65,13 @@ provider "helm" {
 module "bootstrap" {
   source = "../../modules/argocd-bootstrap"
 
-  name          = "dev"
-  cluster_name  = module.platform.cluster_name
-  region        = var.region
-  vpc_id        = module.platform.vpc_id
-  dns_zone_id   = var.dns_zone_id
-  dns_zone_name = var.dns_zone_name
+  name                      = "dev"
+  cluster_name              = module.platform.cluster_name
+  region                    = var.region
+  vpc_id                    = module.platform.vpc_id
+  dns_zone_id               = var.dns_zone_id
+  dns_zone_name             = var.dns_zone_name
+  enable_kyverno_ecr_access = var.enable_kyverno_ecr_access
 }
 
 output "cluster_name" {

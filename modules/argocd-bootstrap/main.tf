@@ -124,6 +124,60 @@ resource "helm_release" "external_dns" {
   depends_on = [helm_release.alb_controller, aws_eks_pod_identity_association.external_dns]
 }
 
+# ---- Kyverno: read-only registry access so image-verification policies can fetch attestations ----
+# Only the admission controller (where image verification runs) gets an identity. The role can read image metadata and
+# layers of the school-* repositories and nothing else; it cannot push, delete or touch other repositories.
+locals {
+  kyverno_ecr = var.enable_kyverno_ecr_access ? 1 : 0
+}
+
+data "aws_caller_identity" "kyverno" {
+  count = local.kyverno_ecr
+}
+
+resource "aws_iam_role" "kyverno_ecr" {
+  count              = local.kyverno_ecr
+  name               = "${var.name}-kyverno-ecr"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity_trust.json
+  tags               = var.tags
+}
+
+data "aws_iam_policy_document" "kyverno_ecr" {
+  #checkov:skip=CKV_AWS_356:ecr:GetAuthorizationToken does not support resource-level permissions; image reads are scoped to the school-* repositories below
+  count = local.kyverno_ecr
+
+  statement {
+    sid       = "RegistryLogin"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "ReadSchoolImages"
+    actions = [
+      "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability",
+      "ecr:DescribeImages", "ecr:ListImages",
+    ]
+    resources = ["arn:aws:ecr:${var.region}:${data.aws_caller_identity.kyverno[0].account_id}:repository/school-*"]
+  }
+}
+
+resource "aws_iam_role_policy" "kyverno_ecr" {
+  count  = local.kyverno_ecr
+  name   = "kyverno-ecr-read"
+  role   = aws_iam_role.kyverno_ecr[0].id
+  policy = data.aws_iam_policy_document.kyverno_ecr[0].json
+}
+
+resource "aws_eks_pod_identity_association" "kyverno_ecr" {
+  count           = local.kyverno_ecr
+  cluster_name    = var.cluster_name
+  namespace       = "kyverno"
+  service_account = "kyverno-admission-controller"
+  role_arn        = aws_iam_role.kyverno_ecr[0].arn
+  tags            = var.tags
+}
+
 # ---- External Secrets Operator: Secrets Manager -> Kubernetes Secrets ----
 # Its IAM role and Pod Identity association live in modules/secrets (namespace/service account must match).
 resource "helm_release" "external_secrets" {

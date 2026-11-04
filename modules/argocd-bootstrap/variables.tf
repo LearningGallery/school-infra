@@ -46,6 +46,12 @@ variable "dns_zone_name" {
   }
 }
 
+variable "enable_kyverno_ecr_access" {
+  description = "Give Kyverno's admission controller read-only access to the school-* ECR repositories (Pod Identity), so image-verification policies can read attestations. Off by default."
+  type        = bool
+  default     = false
+}
+
 variable "enable_prometheus_stack" {
   description = "Install kube-prometheus-stack (Prometheus, Alertmanager, Grafana). Costs node capacity."
   type        = bool
