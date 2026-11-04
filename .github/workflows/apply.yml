@@ -12,7 +12,7 @@ on:
       environment:
         description: Environment to plan and apply
         type: choice
-        options: [dev, staging, production]
+        options: [dev, staging]
         default: dev
       allow_destroy:
         description: Allow the plan to delete resources (leave off unless a deletion is intended)
@@ -58,14 +58,3 @@ jobs:
     secrets: inherit # TFVARS_JSON and PLAN_ARTIFACT_KEY are secrets; a called workflow does not see them otherwise
     with:
       env: staging
-
-  production:
-    if: github.event_name == 'push'
-    needs: staging
-    permissions:
-      id-token: write
-      contents: read
-    uses: ./.github/workflows/_apply.yml
-    secrets: inherit # TFVARS_JSON and PLAN_ARTIFACT_KEY are secrets; a called workflow does not see them otherwise
-    with:
-      env: production
