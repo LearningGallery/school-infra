@@ -7,6 +7,9 @@ on:
       env:
         type: string
         required: true
+      allow_destroy:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,8 +39,14 @@ jobs:
         working-directory: live/${{ inputs.env }}
         env:
           TFVARS_JSON: ${{ secrets.TFVARS_JSON }}
+          ALLOW_PLACEHOLDERS: ${{ vars.ALLOW_PLACEHOLDERS }}
         run: |
-          if [ -z "${TFVARS_JSON}" ]; then echo "no TFVARS_JSON for this environment: planning with the committed placeholders"; exit 0; fi
+          if [ -z "${TFVARS_JSON}" ]; then
+            # An empty value means the secret was not passed or not set, and the committed placeholders would plan the
+            # DESTRUCTION of a real environment. Refuse unless the environment is explicitly marked as placeholder-only.
+            if [ "${ALLOW_PLACEHOLDERS}" = "true" ]; then echo "placeholder-only environment: planning with the committed values"; exit 0; fi
+            echo "::error::TFVARS_JSON is empty for this environment. Refusing to plan with placeholder values."; exit 1
+          fi
           echo "${TFVARS_JSON}" | jq -r '[.account_id, (.public_access_cidrs[]?), (.admin_role_arns[]?), (.alert_emails[]?)] | .[] | select(. != null)' \
             | while IFS= read -r v; do echo "::add-mask::${v}"; done
           echo "${TFVARS_JSON}" > zz-environment.auto.tfvars.json
@@ -49,6 +58,7 @@ jobs:
           AWS_REGION_VAR: ${{ vars.AWS_REGION }}
           TARGET_ENV: ${{ inputs.env }}
           PLAN_ARTIFACT_KEY: ${{ secrets.PLAN_ARTIFACT_KEY }}
+          ALLOW_DESTROY: ${{ inputs.allow_destroy }}
           # PLAN_REFRESH=false where runners cannot reach the cluster API (see plan.yml).
           REFRESH_FLAG: ${{ vars.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
         run: |
@@ -62,6 +72,11 @@ jobs:
           terraform plan -input=false -lock-timeout=5m ${REFRESH_FLAG} -out=tfplan
           # A saved plan contains every variable and generated secret value, and artifacts of a public repository are
           # public. Encrypt it; only the apply job holds the key.
+          if [ -z "${PLAN_ARTIFACT_KEY}" ]; then echo "::error::PLAN_ARTIFACT_KEY is empty: the plan would be uploaded unprotected."; exit 1; fi
+          # Show what the plan would delete, and stop unless the run was started with allow_destroy: a plan that
+          # destroys part of an environment must never be applied unseen.
+          terraform show -json tfplan | jq -r '.resource_changes[] | select(.change.actions | index("delete")) | "DELETE " + .address' | sed -E 's/[0-9]{12}/************/g' | tee destroys.txt
+          if [ -s destroys.txt ] && [ "${ALLOW_DESTROY}" != "true" ]; then echo "::error::The plan deletes resources (listed above). Re-run with allow_destroy only if that is intended."; exit 1; fi
           openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:PLAN_ARTIFACT_KEY -in tfplan -out tfplan.enc
           rm tfplan
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
