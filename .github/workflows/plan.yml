@@ -133,13 +133,12 @@ jobs:
       - uses: infracost/actions/setup@a5783eb98adc93aa7a0049fce0abb06fdd30770a # v5.0.1
         if: ${{ vars.INFRACOST_ENABLED == 'true' }}
         continue-on-error: true
-        with:
-          api-key: ${{ secrets.INFRACOST_API_KEY }}
       - name: Cost estimate
         if: ${{ vars.INFRACOST_ENABLED == 'true' }}
         continue-on-error: true
         working-directory: live/${{ matrix.env }}
         env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }} # the v5 setup action has no api-key input; the CLI reads this variable
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: |
