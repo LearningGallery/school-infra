@@ -51,6 +51,17 @@ variable "state_kms_key_arn" {
   type        = string
 }
 
+variable "readable_secret_arns" {
+  description = "Secrets Manager secrets whose VALUE the plan may read, because Terraform manages a secret version and refreshes it on every plan. List exact ARNs; ? matches the random 6-character suffix. Never use *."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for a in var.readable_secret_arns : !endswith(a, "*") && !strcontains(a, ":secret:*")])
+    error_message = "List specific secrets; a wildcard would let the plan role read every secret."
+  }
+}
+
 variable "role_name" {
   type    = string
   default = "school-infra-plan"
@@ -117,6 +128,22 @@ data "aws_iam_policy_document" "state" {
     actions   = ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
     resources = [var.state_kms_key_arn]
   }
+}
+
+data "aws_iam_policy_document" "secrets" {
+  count = length(var.readable_secret_arns) > 0 ? 1 : 0
+  statement {
+    sid       = "ReadNamedSecretValues"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = var.readable_secret_arns
+  }
+}
+
+resource "aws_iam_role_policy" "secrets" {
+  count  = length(var.readable_secret_arns) > 0 ? 1 : 0
+  name   = "read-named-secrets"
+  role   = aws_iam_role.plan.id
+  policy = data.aws_iam_policy_document.secrets[0].json
 }
 
 resource "aws_iam_role_policy" "state" {

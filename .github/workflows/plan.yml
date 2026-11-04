@@ -88,6 +88,18 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }} # read-only
           aws-region: ${{ vars.AWS_REGION }}
+      # Real values (account id, allowed IP, alert email) never live in the repository. They are one JSON
+      # Environment secret per environment, loaded as an auto-loaded tfvars file and masked in the logs, because the
+      # logs and pull request comments of a public repository are public.
+      - name: Load environment values (masked)
+        working-directory: live/${{ matrix.env }}
+        env:
+          TFVARS_JSON: ${{ secrets.TFVARS_JSON }}
+        run: |
+          if [ -z "${TFVARS_JSON}" ]; then echo "no TFVARS_JSON for this environment: planning with the committed placeholders"; exit 0; fi
+          echo "${TFVARS_JSON}" | jq -r '[.account_id, (.public_access_cidrs[]?), (.admin_role_arns[]?), (.alert_emails[]?)] | .[] | select(. != null)' \
+            | while IFS= read -r v; do echo "::add-mask::${v}"; done
+          echo "${TFVARS_JSON}" > zz-environment.auto.tfvars.json
       - name: terraform plan
         working-directory: live/${{ matrix.env }}
         env:
@@ -110,13 +122,18 @@ jobs:
           docker run --rm -v "$PWD:/work" -v "$GITHUB_WORKSPACE/policies/conftest:/policy:ro" -w /work \
             openpolicyagent/conftest@sha256:0e77cdf7c1fcde035f3c579e4aaa6664ee2a8be5777eaa9af9f520cdd02280c0 \
             test plan.json --policy /policy --namespace main
-      - name: Comment the plan on the pull request
+      - name: Comment the plan summary on the pull request
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');
-            const plan = fs.readFileSync('live/${{ matrix.env }}/plan.txt', 'utf8');
-            const body = `### terraform plan: \`${{ matrix.env }}\`\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan.slice(0, 60000)}\n\`\`\`\n</details>`;
+            const plan = JSON.parse(fs.readFileSync('live/${{ matrix.env }}/plan.json', 'utf8'));
+            // Addresses only: no attribute values, and any 12-digit account id is blanked. The full plan stays in the
+            // (masked) job log, because a public repository's comments are readable by everyone.
+            const hide = (t) => t.replace(/[0-9]{12}/g, '************');
+            const changes = (plan.resource_changes || []).filter((c) => !(c.change.actions.length === 1 && c.change.actions[0] === 'no-op'));
+            const lines = changes.map((c) => `- ${c.change.actions.join('/')}: \`${hide(c.address)}\``);
+            const body = `### terraform plan: \`${{ matrix.env }}\`\n${changes.length} resource change(s). Addresses only; open the job log for details.\n\n${lines.slice(0, 200).join('\n') || 'No changes.'}`;
             await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
 
   cost:
