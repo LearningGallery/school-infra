@@ -65,10 +65,12 @@ provider "helm" {
 module "bootstrap" {
   source = "../../modules/argocd-bootstrap"
 
-  name         = "dev"
-  cluster_name = module.platform.cluster_name
-  region       = var.region
-  vpc_id       = module.platform.vpc_id
+  name          = "dev"
+  cluster_name  = module.platform.cluster_name
+  region        = var.region
+  vpc_id        = module.platform.vpc_id
+  dns_zone_id   = var.dns_zone_id
+  dns_zone_name = var.dns_zone_name
 }
 
 output "cluster_name" {

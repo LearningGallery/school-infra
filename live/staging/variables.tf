@@ -87,6 +87,18 @@ variable "anomaly_monitor_arn" {
   default     = ""
 }
 
+variable "dns_zone_id" {
+  description = "Route 53 hosted zone for ExternalDNS (empty disables it)."
+  type        = string
+  default     = ""
+}
+
+variable "dns_zone_name" {
+  description = "Domain ExternalDNS manages, for example school.example.com."
+  type        = string
+  default     = ""
+}
+
 variable "monthly_budget_usd" {
   description = "Monthly cost budget for this environment in USD (0 disables). Budgets alert, they do not stop spend."
   type        = number
