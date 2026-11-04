@@ -52,6 +52,78 @@ resource "helm_release" "alb_controller" {
   depends_on = [aws_eks_pod_identity_association.alb_controller]
 }
 
+# ---- ExternalDNS: writes a DNS record for each Ingress host into ONE Route 53 zone ----
+# Off unless dns_zone_id is set. The role can change records in that single zone only, and the controller runs in
+# upsert-only mode, so it can create and update records but never delete one.
+locals {
+  external_dns = var.dns_zone_id != "" ? 1 : 0
+}
+
+resource "aws_iam_role" "external_dns" {
+  count              = local.external_dns
+  name               = "${var.name}-external-dns"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity_trust.json
+  tags               = var.tags
+}
+
+data "aws_iam_policy_document" "external_dns" {
+  #checkov:skip=CKV_AWS_356:route53:ListHostedZones and ListResourceRecordSets do not support resource-level permissions; writes are scoped to one zone above
+  count = local.external_dns
+
+  statement {
+    sid       = "ChangeRecordsInOneZone"
+    actions   = ["route53:ChangeResourceRecordSets"]
+    resources = ["arn:aws:route53:::hostedzone/${var.dns_zone_id}"]
+  }
+
+  statement {
+    sid       = "ListZonesAndRecords"
+    actions   = ["route53:ListHostedZones", "route53:ListResourceRecordSets", "route53:ListTagsForResource"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "external_dns" {
+  count  = local.external_dns
+  name   = "external-dns"
+  role   = aws_iam_role.external_dns[0].id
+  policy = data.aws_iam_policy_document.external_dns[0].json
+}
+
+resource "aws_eks_pod_identity_association" "external_dns" {
+  count           = local.external_dns
+  cluster_name    = var.cluster_name
+  namespace       = "external-dns"
+  service_account = "external-dns"
+  role_arn        = aws_iam_role.external_dns[0].arn
+  tags            = var.tags
+}
+
+resource "helm_release" "external_dns" {
+  count            = local.external_dns
+  name             = "external-dns"
+  repository       = "https://kubernetes-sigs.github.io/external-dns/"
+  chart            = "external-dns"
+  version          = var.chart_versions["external-dns"]
+  namespace        = "external-dns"
+  create_namespace = true
+  timeout          = 600
+
+  values = [yamlencode({
+    provider       = { name = "aws" }
+    sources        = ["ingress"]
+    policy         = "upsert-only"
+    registry       = "txt"
+    txtOwnerId     = "${var.name}-${var.cluster_name}"
+    domainFilters  = [var.dns_zone_name]
+    serviceAccount = { create = true, name = "external-dns" }
+    extraArgs      = ["--aws-zone-type=public"]
+  })]
+
+  # The load balancer controller's webhook sees every new Service: install it first.
+  depends_on = [helm_release.alb_controller, aws_eks_pod_identity_association.external_dns]
+}
+
 # ---- External Secrets Operator: Secrets Manager -> Kubernetes Secrets ----
 # Its IAM role and Pod Identity association live in modules/secrets (namespace/service account must match).
 resource "helm_release" "external_secrets" {
