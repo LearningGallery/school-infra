@@ -65,6 +65,8 @@ resource "aws_db_parameter_group" "this" {
   parameter {
     name  = "rds.force_ssl"
     value = "1"
+    # AWS reports this parameter as pending-reboot even though it is dynamic; stating it avoids a permanent plan diff.
+    apply_method = "pending-reboot"
   }
   parameter {
     name  = "log_connections"
