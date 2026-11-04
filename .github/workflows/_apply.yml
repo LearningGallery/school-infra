@@ -31,6 +31,16 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+      # Same masked per-environment values as plan.yml: this repository is public, so logs and artifacts are public.
+      - name: Load environment values (masked)
+        working-directory: live/${{ inputs.env }}
+        env:
+          TFVARS_JSON: ${{ secrets.TFVARS_JSON }}
+        run: |
+          if [ -z "${TFVARS_JSON}" ]; then echo "no TFVARS_JSON for this environment: planning with the committed placeholders"; exit 0; fi
+          echo "${TFVARS_JSON}" | jq -r '[.account_id, (.public_access_cidrs[]?), (.admin_role_arns[]?), (.alert_emails[]?)] | .[] | select(. != null)' \
+            | while IFS= read -r v; do echo "::add-mask::${v}"; done
+          echo "${TFVARS_JSON}" > zz-environment.auto.tfvars.json
       - name: terraform plan
         working-directory: live/${{ inputs.env }}
         env:
@@ -38,6 +48,9 @@ jobs:
           STATE_KMS_KEY_ARN: ${{ vars.STATE_KMS_KEY_ARN }}
           AWS_REGION_VAR: ${{ vars.AWS_REGION }}
           TARGET_ENV: ${{ inputs.env }}
+          PLAN_ARTIFACT_KEY: ${{ secrets.PLAN_ARTIFACT_KEY }}
+          # PLAN_REFRESH=false where runners cannot reach the cluster API (see plan.yml).
+          REFRESH_FLAG: ${{ vars.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
         run: |
           terraform init -input=false \
             -backend-config="bucket=${STATE_BUCKET}" \
@@ -45,11 +58,16 @@ jobs:
             -backend-config="region=${AWS_REGION_VAR}" \
             -backend-config="kms_key_id=${STATE_KMS_KEY_ARN}" \
             -backend-config="use_lockfile=true" -backend-config="encrypt=true"
-          terraform plan -input=false -lock-timeout=5m -out=tfplan
+          # shellcheck disable=SC2086 # REFRESH_FLAG is empty or a single flag, so it must not be quoted
+          terraform plan -input=false -lock-timeout=5m ${REFRESH_FLAG} -out=tfplan
+          # A saved plan contains every variable and generated secret value, and artifacts of a public repository are
+          # public. Encrypt it; only the apply job holds the key.
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:PLAN_ARTIFACT_KEY -in tfplan -out tfplan.enc
+          rm tfplan
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tfplan-${{ inputs.env }}
-          path: live/${{ inputs.env }}/tfplan
+          path: live/${{ inputs.env }}/tfplan.enc
           retention-days: 3
 
   apply:
@@ -84,7 +102,9 @@ jobs:
           STATE_KMS_KEY_ARN: ${{ vars.STATE_KMS_KEY_ARN }}
           AWS_REGION_VAR: ${{ vars.AWS_REGION }}
           TARGET_ENV: ${{ inputs.env }}
+          PLAN_ARTIFACT_KEY: ${{ secrets.PLAN_ARTIFACT_KEY }}
         run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:PLAN_ARTIFACT_KEY -in tfplan.enc -out tfplan
           terraform init -input=false \
             -backend-config="bucket=${STATE_BUCKET}" \
             -backend-config="key=${TARGET_ENV}/terraform.tfstate" \
@@ -92,3 +112,4 @@ jobs:
             -backend-config="kms_key_id=${STATE_KMS_KEY_ARN}" \
             -backend-config="use_lockfile=true" -backend-config="encrypt=true"
           terraform apply -input=false -lock-timeout=5m tfplan
+          rm -f tfplan
