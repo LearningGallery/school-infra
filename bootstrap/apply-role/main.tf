@@ -73,6 +73,18 @@ variable "role_name" {
   default = "school-infra-apply"
 }
 
+variable "dns_zone_id" {
+  description = "Hosted zone of the environment's subdomain. Set it to let the destroy workflow remove the DNS records ExternalDNS wrote; empty grants no Route 53 access."
+  type        = string
+  default     = ""
+}
+
+variable "dns_record_names" {
+  description = "Record names (lower case, no trailing dot) this role may change in the zone: the environment's host and its ExternalDNS ownership records."
+  type        = list(string)
+  default     = []
+}
+
 locals {
   oidc_host = "token.actions.githubusercontent.com"
   tags      = { project = "devops-zero-to-hero", purpose = "terraform-apply" }
@@ -199,6 +211,21 @@ data "aws_iam_policy_document" "apply" {
     sid       = "ReadIdentityAndPolicies"
     actions   = ["iam:GetPolicy", "iam:GetPolicyVersion", "iam:ListPolicies", "iam:ListOpenIDConnectProviders", "sts:GetCallerIdentity"]
     resources = ["*"]
+  }
+
+  # Only the destroy workflow needs this: ExternalDNS creates and updates records but never deletes them.
+  dynamic "statement" {
+    for_each = var.dns_zone_id == "" ? [] : [1]
+    content {
+      sid       = "EnvironmentDnsRecords"
+      actions   = ["route53:ListResourceRecordSets", "route53:ChangeResourceRecordSets"]
+      resources = ["arn:aws:route53:::hostedzone/${var.dns_zone_id}"]
+      condition {
+        test     = "ForAllValues:StringEquals"
+        variable = "route53:ChangeResourceRecordSetsNormalizedRecordNames"
+        values   = var.dns_record_names
+      }
+    }
   }
 
   statement {
