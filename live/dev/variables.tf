@@ -105,6 +105,12 @@ variable "dns_zone_name" {
   default     = ""
 }
 
+variable "enable_kyverno_ecr_access" {
+  description = "Read-only ECR access for Kyverno's admission controller (image verification)."
+  type        = bool
+  default     = false
+}
+
 variable "monthly_budget_usd" {
   description = "Monthly cost budget for this environment in USD (0 disables). Budgets alert, they do not stop spend."
   type        = number
