@@ -28,7 +28,7 @@ variable "release_branch" {
 variable "pull_environments" {
   description = "GitHub Environments allowed to assume the read-only pull role."
   type        = list(string)
-  default     = ["dev", "staging", "production"]
+  default     = ["dev", "staging"]
 }
 
 variable "ecr_repository_arns" {

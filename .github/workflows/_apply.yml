@@ -89,7 +89,7 @@ jobs:
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # Approval gate: configure required reviewers on each GitHub Environment (production: at least two).
+    # Approval gate: configure required reviewers on each GitHub Environment (more than one where the environment is critical).
     environment: ${{ inputs.env }}
     permissions:
       id-token: write

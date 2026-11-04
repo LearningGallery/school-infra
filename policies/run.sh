@@ -6,7 +6,7 @@
 # `terraform plan` (nothing can be created: there are no valid credentials) and feeds the plan JSON to Conftest.
 set -euo pipefail
 
-ENV="${1:?usage: policies/run.sh <dev|staging|production|regulated>}"
+ENV="${1:?usage: policies/run.sh <dev|staging|regulated>}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 CONFTEST="openpolicyagent/conftest@sha256:0e77cdf7c1fcde035f3c579e4aaa6664ee2a8be5777eaa9af9f520cdd02280c0"
 WORK="$(mktemp -d)"

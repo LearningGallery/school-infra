@@ -38,7 +38,7 @@ variable "oidc_provider_arn" {
 variable "environments" {
   description = "GitHub Environments allowed to assume the role."
   type        = list(string)
-  default     = ["plan-dev", "plan-staging", "plan-production"]
+  default     = ["plan-dev", "plan-staging"]
 }
 
 variable "state_bucket" {
