@@ -67,6 +67,9 @@ resource "helm_release" "external_secrets" {
     installCRDs    = true
     serviceAccount = { create = true, name = "external-secrets" }
   })]
+
+  # The ALB controller's mutating webhook sees every new Service: install it first or the others race it.
+  depends_on = [helm_release.alb_controller]
 }
 
 # ---- Argo CD and Argo Rollouts ----
@@ -83,6 +86,9 @@ resource "helm_release" "argocd" {
   values = [yamlencode({
     configs = { params = { "server.insecure" = false } }
   })]
+
+  # The ALB controller's mutating webhook sees every new Service: install it first or the others race it.
+  depends_on = [helm_release.alb_controller]
 }
 
 resource "helm_release" "argo_rollouts" {
@@ -97,6 +103,9 @@ resource "helm_release" "argo_rollouts" {
   values = [yamlencode({
     dashboard = { enabled = false }
   })]
+
+  # The ALB controller's mutating webhook sees every new Service: install it first or the others race it.
+  depends_on = [helm_release.alb_controller]
 }
 
 # ---- Prometheus, Alertmanager, Grafana ----
@@ -130,4 +139,7 @@ resource "helm_release" "prometheus_stack" {
       sidecar = { dashboards = { enabled = true, label = "grafana_dashboard", searchNamespace = "ALL" } }
     }
   })]
+
+  # The ALB controller's mutating webhook sees every new Service: install it first or the others race it.
+  depends_on = [helm_release.alb_controller]
 }

@@ -44,6 +44,7 @@ module "platform" {
   rds_skip_final_snapshot   = var.rds_skip_final_snapshot
   alert_emails              = var.alert_emails
   monthly_budget_usd        = var.monthly_budget_usd
+  anomaly_monitor_arn       = var.anomaly_monitor_arn
   interface_endpoints       = var.interface_endpoints
 }
 
