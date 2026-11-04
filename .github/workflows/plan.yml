@@ -60,7 +60,6 @@ jobs:
       - name: Plan-time policy check (no AWS account needed)
         run: |
           policies/run.sh regulated
-          policies/run.sh production
 
   plan:
     name: plan (${{ matrix.env }})
@@ -71,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [dev, staging, production]
+        env: [dev, staging]
     permissions:
       id-token: write
       contents: read
@@ -127,6 +126,27 @@ jobs:
           docker run --rm -v "$PWD:/work" -v "$GITHUB_WORKSPACE/policies/conftest:/policy:ro" -w /work \
             openpolicyagent/conftest@sha256:0e77cdf7c1fcde035f3c579e4aaa6664ee2a8be5777eaa9af9f520cdd02280c0 \
             test plan.json --policy /policy --namespace main
+      # Optional price estimate from the real plan (the plan job is the only place that has the resolved values).
+      # Needs a free Infracost API key in the secret INFRACOST_API_KEY and the repository variable
+      # INFRACOST_ENABLED=true; without them these two steps are skipped. Infracost receives price-related attributes
+      # (resource types, sizes, region), not credentials. continue-on-error: a pricing outage must not block a PR.
+      - uses: infracost/actions/setup@a5783eb98adc93aa7a0049fce0abb06fdd30770a # v5.0.1
+        if: ${{ vars.INFRACOST_ENABLED == 'true' }}
+        continue-on-error: true
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+      - name: Cost estimate
+        if: ${{ vars.INFRACOST_ENABLED == 'true' }}
+        continue-on-error: true
+        working-directory: live/${{ matrix.env }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          infracost breakdown --path plan.json --format table --no-color > cost.txt
+          { echo "### cost estimate: \`${{ matrix.env }}\` (monthly, Infracost)"; echo '```'; cat cost.txt; echo '```'; } > cost.md
+          cat cost.md >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file cost.md
       - name: Comment the plan summary on the pull request
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
@@ -140,25 +160,6 @@ jobs:
             const lines = changes.map((c) => `- ${c.change.actions.join('/')}: \`${hide(c.address)}\``);
             const body = `### terraform plan: \`${{ matrix.env }}\`\n${changes.length} resource change(s). Addresses only; open the job log for details.\n\n${lines.slice(0, 200).join('\n') || 'No changes.'}`;
             await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
-
-  cost:
-    # Optional: needs an Infracost API key. Enable with the repository variable INFRACOST_ENABLED=true.
-    name: cost estimate
-    if: ${{ vars.INFRACOST_ENABLED == 'true' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: infracost/actions/setup@a5783eb98adc93aa7a0049fce0abb06fdd30770a # v5.0.1
-        with:
-          api-key: ${{ secrets.INFRACOST_API_KEY }}
-      - name: Estimate production
-        run: infracost breakdown --path live/production --format table
 
   gate:
     name: gate

@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [dev, staging, production]
+        env: [dev, staging]
     permissions:
       id-token: write
       contents: read

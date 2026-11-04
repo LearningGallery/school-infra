@@ -13,7 +13,7 @@ Repo 3 of 3: Terraform / OpenTofu infrastructure. Validate-only in the learning 
 | `modules/platform` | Composition of the above for one environment |
 | `modules/argocd-bootstrap` | Helm: ALB controller, External Secrets, Argo CD, Argo Rollouts, kube-prometheus-stack |
 | `bootstrap/` | `state` (S3 remote state), `ci-trust` (ECR + OIDC), `github-rulesets` (branch protection as code) |
-| `live/{dev,staging,production,regulated}` | Per-environment root modules, each with its own state |
+| `live/{dev,staging,regulated}` | Per-environment root modules, each with its own state |
 | `policies/` | Custom Checkov policies and Conftest (Rego) plan checks |
 
 ```bash
