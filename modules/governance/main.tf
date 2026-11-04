@@ -36,7 +36,7 @@ resource "aws_budgets_budget" "monthly" {
 }
 
 resource "aws_ce_anomaly_monitor" "services" {
-  count             = local.enabled ? 1 : 0
+  count             = local.enabled && var.anomaly_monitor_arn == "" ? 1 : 0
   name              = "${var.name}-services"
   monitor_type      = "DIMENSIONAL"
   monitor_dimension = "SERVICE"
@@ -47,7 +47,7 @@ resource "aws_ce_anomaly_subscription" "daily" {
   count            = local.enabled ? 1 : 0
   name             = "${var.name}-anomalies"
   frequency        = "DAILY"
-  monitor_arn_list = [aws_ce_anomaly_monitor.services[0].arn]
+  monitor_arn_list = [var.anomaly_monitor_arn != "" ? var.anomaly_monitor_arn : aws_ce_anomaly_monitor.services[0].arn]
 
   subscriber {
     type    = "EMAIL"

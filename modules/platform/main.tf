@@ -82,8 +82,9 @@ module "observability" {
 module "governance" {
   source = "../governance"
 
-  name               = var.env
-  monthly_budget_usd = var.monthly_budget_usd
-  alert_emails       = var.alert_emails
-  tags               = local.tags
+  name                = var.env
+  monthly_budget_usd  = var.monthly_budget_usd
+  alert_emails        = var.alert_emails
+  anomaly_monitor_arn = var.anomaly_monitor_arn
+  tags                = local.tags
 }
