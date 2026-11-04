@@ -120,6 +120,12 @@ variable "tags" {
   default = {}
 }
 
+variable "anomaly_monitor_arn" {
+  description = "Existing account-level anomaly monitor to reuse (AWS allows one per account). Empty creates one."
+  type        = string
+  default     = ""
+}
+
 variable "monthly_budget_usd" {
   description = "Monthly cost budget for this environment in USD. 0 disables budget alerts."
   type        = number
