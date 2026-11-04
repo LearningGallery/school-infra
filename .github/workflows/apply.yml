@@ -6,6 +6,14 @@ on:
   push:
     branches: [main]
     paths: ["modules/**", "live/**"]
+  # Run one environment on demand, for example after changing the workflow or the role. Same gates as a push.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to plan and apply
+        type: choice
+        options: [dev, staging, production]
+        default: dev
 
 concurrency:
   group: apply
@@ -15,7 +23,17 @@ permissions:
   contents: read
 
 jobs:
+  manual:
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/_apply.yml
+    with:
+      env: ${{ inputs.environment }}
+
   dev:
+    if: github.event_name == 'push'
     permissions:
       id-token: write
       contents: read
@@ -24,6 +42,7 @@ jobs:
       env: dev
 
   staging:
+    if: github.event_name == 'push'
     needs: dev
     permissions:
       id-token: write
@@ -33,6 +52,7 @@ jobs:
       env: staging
 
   production:
+    if: github.event_name == 'push'
     needs: staging
     permissions:
       id-token: write
