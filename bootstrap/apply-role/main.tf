@@ -176,6 +176,12 @@ data "aws_iam_policy_document" "apply" {
   }
 
   statement {
+    sid       = "ReadServiceLinkedRoles"
+    actions   = ["iam:GetRole", "iam:ListAttachedRolePolicies", "iam:ListRolePolicies"]
+    resources = ["arn:aws:iam::${var.account_id}:role/aws-service-role/*"]
+  }
+
+  statement {
     sid       = "ServiceLinkedRoles"
     actions   = ["iam:CreateServiceLinkedRole"]
     resources = ["*"]
