@@ -1,0 +1,68 @@
+# Tear down one or both environments when you are done working, so nothing keeps billing.
+# Run it by hand: Actions > destroy > Run workflow. Three gates stand between a click and a deletion:
+#   1. you must type "destroy <environment>" exactly,
+#   2. the GitHub Environment's required reviewer must approve the job (same gate as apply),
+#   3. the job prints the destroy plan before applying it and refuses to run without the environment's values.
+# It deletes the dev and staging environments only. The foundation (state bucket, ECR repositories and images, the
+# GitHub OIDC provider and the CI roles, the DNS zone and certificate) is not touched: those are what lets this
+# workflow, and the next apply, run at all.
+name: destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to destroy ("all" does staging, then dev, each behind its own approval)
+        type: choice
+        options: [staging, dev, all]
+        default: staging
+      confirm:
+        description: 'Type "destroy" and the environment, for example: destroy staging'
+        type: string
+        required: true
+
+concurrency:
+  group: apply # never run beside an apply or another destroy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check confirmation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: The typed confirmation must match
+        env:
+          WANT: destroy ${{ inputs.environment }}
+          GOT: ${{ inputs.confirm }}
+        run: |
+          if [ "${GOT}" != "${WANT}" ]; then
+            echo "::error::Confirmation does not match. Type exactly: ${WANT}"
+            exit 1
+          fi
+
+  staging:
+    needs: check
+    if: ${{ inputs.environment == 'staging' || inputs.environment == 'all' }}
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/_destroy.yml
+    secrets: inherit # TFVARS_JSON is an Environment secret; a called workflow does not see it otherwise
+    with:
+      env: staging
+
+  dev:
+    needs: [check, staging]
+    # staging is skipped when only dev was asked for; run unless something upstream failed or was cancelled
+    if: ${{ !cancelled() && !failure() && (inputs.environment == 'dev' || inputs.environment == 'all') }}
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/_destroy.yml
+    secrets: inherit
+    with:
+      env: dev
