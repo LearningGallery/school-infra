@@ -21,6 +21,10 @@ make infra-check     # fmt + validate every root module   (from the repository r
 make policy-check    # Checkov, tflint, Conftest, plan-time policy tests (needs docker)
 ```
 
+## Destroying an environment when you are done
+
+Actions > **destroy** > Run workflow. Choose `staging`, `dev` or `all`, and type `destroy <environment>` exactly. Each environment then waits for its GitHub Environment's required reviewer, prints the destroy plan, and deletes the environment: the cluster, database, networking, load balancers, alarms and keys, plus the leftovers Terraform never owned (the app secret, the RDS log group, the ExternalDNS records). It does **not** touch the foundation (state bucket, ECR repositories and images, the OIDC provider and CI roles, the DNS zone and certificate), so `apply` works again afterwards. The job needs the environment's `TFVARS_JSON` as a secret on the `dev` and `staging` Environments, and the apply role needs Route 53 access to the zone (`dns_zone_id` in `bootstrap/apply-role`).
+
 ## Cost estimate on pull requests
 
 The `plan` job prices the real plan (`plan.json`) with Infracost and comments one table per environment (dev, staging) on the pull request. It is optional: it needs the repository secret `INFRACOST_API_KEY` (a free key from infracost.io) and the repository variable `INFRACOST_ENABLED=true`; without them the two steps are skipped. The steps use `continue-on-error`, so a pricing outage never blocks a pull request. Only price-related attributes (resource types, sizes, region) go to Infracost.
