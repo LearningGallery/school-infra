@@ -20,3 +20,7 @@ Repo 3 of 3: Terraform / OpenTofu infrastructure. Validate-only in the learning 
 make infra-check     # fmt + validate every root module   (from the repository root)
 make policy-check    # Checkov, tflint, Conftest, plan-time policy tests (needs docker)
 ```
+
+## Cost estimate on pull requests
+
+The `plan` job prices the real plan (`plan.json`) with Infracost and comments one table per environment (dev, staging) on the pull request. It is optional: it needs the repository secret `INFRACOST_API_KEY` (a free key from infracost.io) and the repository variable `INFRACOST_ENABLED=true`; without them the two steps are skipped. The steps use `continue-on-error`, so a pricing outage never blocks a pull request. Only price-related attributes (resource types, sizes, region) go to Infracost.
