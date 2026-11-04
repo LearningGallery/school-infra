@@ -1,0 +1,177 @@
+# Reusable: destroy ONE environment (called by destroy.yml, which holds the typed-confirmation gate).
+# The job runs in the GitHub Environment of the same name, so it needs the same reviewer approval as an apply and
+# assumes the same scoped apply role.
+#
+# Why this is more than "terraform destroy": a hosted runner cannot reach the cluster API (it is restricted to one
+# address), and a cluster that is being deleted needs nothing from its Helm releases. So the job works from AWS APIs:
+#   1. scale the node group to zero, so the load balancer controller cannot recreate what is deleted next;
+#   2. delete the load balancers, target groups and security groups the controller made (Terraform never owned them,
+#      and a leftover blocks the VPC delete);
+#   3. drop the six Helm releases from the Terraform state;
+#   4. terraform destroy;
+#   5. remove what Terraform never owned and that would break a rebuild: the app secret (it is only scheduled for
+#      deletion otherwise, and the name is blocked for 7 days), the RDS log group and the ExternalDNS records.
+name: destroy-environment
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  destroy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: ${{ inputs.env }}
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      TARGET_ENV: ${{ inputs.env }}
+    steps:
+      - name: Only dev and staging can be destroyed here
+        run: |
+          case "${TARGET_ENV}" in dev|staging) ;; *) echo "::error::Refusing to destroy '${TARGET_ENV}'"; exit 1;; esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }} # write role, trust bound to this environment
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # The real values (account id, domain, allowed address) live in this Environment's secret, never in Git. The logs
+      # of a public repository are public, so every value that could identify the deployment is masked first.
+      - name: Load environment values (masked)
+        working-directory: live/${{ inputs.env }}
+        env:
+          TFVARS_JSON: ${{ secrets.TFVARS_JSON }}
+        run: |
+          if [ -z "${TFVARS_JSON}" ]; then
+            echo "::error::TFVARS_JSON is empty for the ${TARGET_ENV} environment. Refusing to plan a destroy without the real values."
+            exit 1
+          fi
+          echo "${TFVARS_JSON}" | jq -r '[.account_id, .dns_zone_id, .dns_zone_name, (.public_access_cidrs[]?), (.admin_role_arns[]?), (.alert_emails[]?)] | .[] | select(. != null and . != "")' \
+            | while IFS= read -r v; do echo "::add-mask::${v}"; done
+          echo "${TFVARS_JSON}" > zz-environment.auto.tfvars.json
+
+      - name: 1. Stop the pods, so nothing recreates what is deleted next
+        run: |
+          CLUSTER="school-${TARGET_ENV}"
+          if ! aws eks describe-cluster --name "${CLUSTER}" >/dev/null 2>&1; then echo "No cluster ${CLUSTER}: nothing to stop."; exit 0; fi
+          for ng in $(aws eks list-nodegroups --cluster-name "${CLUSTER}" --query 'nodegroups[]' --output text); do
+            echo "Scaling node group ${ng} to zero"
+            aws eks update-nodegroup-config --cluster-name "${CLUSTER}" --nodegroup-name "${ng}" \
+              --scaling-config minSize=0,desiredSize=0 >/dev/null || true
+          done
+          for _ in $(seq 1 60); do
+            n=$(aws ec2 describe-instances \
+                  --filters "Name=tag:eks:cluster-name,Values=${CLUSTER}" "Name=instance-state-name,Values=pending,running,stopping,shutting-down" \
+                  --query 'length(Reservations[].Instances[])' --output text)
+            echo "Instances still up: ${n}"
+            [ "${n}" = "0" ] && exit 0
+            sleep 20
+          done
+          echo "::error::The nodes did not stop within 20 minutes."; exit 1
+
+      - name: 2. Delete what the load balancer controller created (outside Terraform)
+        run: |
+          CLUSTER="school-${TARGET_ENV}"
+          TAG='elbv2.k8s.aws/cluster'
+          lbs=""
+          for arn in $(aws elbv2 describe-load-balancers --query 'LoadBalancers[].LoadBalancerArn' --output text); do
+            owner=$(aws elbv2 describe-tags --resource-arns "${arn}" --query "TagDescriptions[0].Tags[?Key=='${TAG}'].Value | [0]" --output text)
+            if [ "${owner}" = "${CLUSTER}" ]; then lbs="${lbs} ${arn}"; fi
+          done
+          for arn in ${lbs}; do echo "Deleting load balancer ${arn##*/}"; aws elbv2 delete-load-balancer --load-balancer-arn "${arn}"; done
+          # shellcheck disable=SC2086 # a list of ARNs, one word each
+          [ -n "${lbs}" ] && aws elbv2 wait load-balancers-deleted --load-balancer-arns ${lbs}
+          for arn in $(aws elbv2 describe-target-groups --query 'TargetGroups[].TargetGroupArn' --output text); do
+            owner=$(aws elbv2 describe-tags --resource-arns "${arn}" --query "TagDescriptions[0].Tags[?Key=='${TAG}'].Value | [0]" --output text)
+            if [ "${owner}" = "${CLUSTER}" ]; then echo "Deleting target group ${arn##*/}"; aws elbv2 delete-target-group --target-group-arn "${arn}"; fi
+          done
+          # The network interfaces of a deleted load balancer linger for a few minutes and hold its security groups.
+          for sg in $(aws ec2 describe-security-groups --filters "Name=tag-key,Values=${TAG}" "Name=tag:${TAG},Values=${CLUSTER}" --query 'SecurityGroups[].GroupId' --output text); do
+            for i in $(seq 1 30); do
+              if aws ec2 delete-security-group --group-id "${sg}" 2>/dev/null; then echo "Deleted security group ${sg}"; break; fi
+              echo "Security group ${sg} still in use, waiting (${i}/30)"; sleep 20
+            done
+          done
+
+      - name: 3. Drop the Helm releases from the state (the cluster is going away)
+        working-directory: live/${{ inputs.env }}
+        env:
+          STATE_BUCKET: ${{ vars.STATE_BUCKET }}
+          STATE_KMS_KEY_ARN: ${{ vars.STATE_KMS_KEY_ARN }}
+          AWS_REGION_VAR: ${{ vars.AWS_REGION }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${STATE_BUCKET}" \
+            -backend-config="key=${TARGET_ENV}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION_VAR}" \
+            -backend-config="kms_key_id=${STATE_KMS_KEY_ARN}" \
+            -backend-config="use_lockfile=true" -backend-config="encrypt=true"
+          for r in $(terraform state list | grep '\.helm_release\.' || true); do terraform state rm "${r}"; done
+
+      - name: 4. terraform destroy (the plan is printed first)
+        working-directory: live/${{ inputs.env }}
+        run: |
+          terraform plan -destroy -input=false -lock-timeout=5m -out=tfdestroy
+          terraform show -json tfdestroy | jq -r '.resource_changes[] | select(.change.actions | index("delete")) | .address' \
+            | sed -E 's/[0-9]{12}/************/g' | sed -E 's/\[.*//' | sort | uniq -c | sort -rn | head -40
+          echo "Total resources to delete: $(terraform show -json tfdestroy | jq '[.resource_changes[] | select(.change.actions | index("delete"))] | length')"
+          terraform apply -input=false -lock-timeout=5m tfdestroy
+          rm -f tfdestroy
+
+      - name: 5. Remove what Terraform never owned
+        working-directory: live/${{ inputs.env }}
+        run: |
+          # The app secret: Terraform only schedules it for deletion (7 days), and the name stays reserved until then.
+          for id in $(aws secretsmanager list-secrets --include-planned-deletion --filters "Key=name,Values=school/${TARGET_ENV}/" --query 'SecretList[].ARN' --output text); do
+            echo "Force-deleting secret ${id##*:secret:}"
+            aws secretsmanager delete-secret --secret-id "${id}" --force-delete-without-recovery >/dev/null
+          done
+          # The log group RDS creates by itself for the PostgreSQL log.
+          for lg in $(aws logs describe-log-groups --log-group-name-prefix "/aws/rds/instance/${TARGET_ENV}-school" --query 'logGroups[].logGroupName' --output text); do
+            echo "Deleting log group ${lg}"; aws logs delete-log-group --log-group-name "${lg}"
+          done
+          # The DNS records ExternalDNS wrote (it only ever creates and updates; it never deletes).
+          ZONE_ID=$(jq -r '.dns_zone_id // empty' zz-environment.auto.tfvars.json)
+          ZONE=$(jq -r '.dns_zone_name // empty' zz-environment.auto.tfvars.json)
+          if [ -n "${ZONE_ID}" ] && [ -n "${ZONE}" ]; then
+            aws route53 list-resource-record-sets --hosted-zone-id "${ZONE_ID}" --output json > rrs.json
+            jq --arg e "${TARGET_ENV}" --arg z "${ZONE}" '
+              [$e + "." + $z + ".", "a-" + $e + "." + $z + ".", "aaaa-" + $e + "." + $z + "."] as $names
+              | {Comment: "remove the records of a destroyed environment",
+                 Changes: [.ResourceRecordSets[] | select(.Name as $n | $names | any(. == $n)) | select(.Type == "A" or .Type == "AAAA" or .Type == "TXT")
+                           | {Action: "DELETE", ResourceRecordSet: .}]}' rrs.json > change.json
+            n=$(jq '.Changes | length' change.json)
+            echo "DNS records to delete: ${n}"
+            if [ "${n}" -gt 0 ]; then aws route53 change-resource-record-sets --hosted-zone-id "${ZONE_ID}" --change-batch file://change.json --query 'ChangeInfo.Status' --output text; fi
+            rm -f rrs.json change.json
+          else
+            echo "No dns_zone_id or dns_zone_name in the environment values: no DNS records to remove."
+          fi
+
+      - name: 6. Leftover check
+        working-directory: live/${{ inputs.env }}
+        run: |
+          CLUSTER="school-${TARGET_ENV}"
+          left=0
+          chk() { if [ "$2" != "0" ] && [ -n "$2" ]; then echo "::warning::Still present: $1 ($2)"; left=1; else echo "ok: no $1"; fi; }
+          chk "EKS cluster" "$(aws eks list-clusters --query "length(clusters[?@=='${CLUSTER}'])" --output text)"
+          chk "RDS instance" "$(aws rds describe-db-instances --query "length(DBInstances[?DBInstanceIdentifier=='${TARGET_ENV}-school'])" --output text)"
+          chk "VPC named ${TARGET_ENV}" "$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=${TARGET_ENV}*" --query 'length(Vpcs)' --output text)"
+          chk "NAT gateway" "$(aws ec2 describe-nat-gateways --filter "Name=tag:Name,Values=${TARGET_ENV}*" "Name=state,Values=available,pending" --query 'length(NatGateways)' --output text)"
+          chk "volume owned by the cluster" "$(aws ec2 describe-volumes --filters "Name=tag-key,Values=kubernetes.io/cluster/${CLUSTER}" --query 'length(Volumes)' --output text)"
+          chk "Terraform state entry" "$(terraform state list 2>/dev/null | wc -l | tr -d ' ')"
+          if [ "${left}" = "0" ]; then echo "Environment ${TARGET_ENV} is gone."; fi
