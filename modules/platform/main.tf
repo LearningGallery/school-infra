@@ -33,6 +33,7 @@ module "eks" {
   endpoint_public_access = var.endpoint_public_access
   public_access_cidrs    = var.public_access_cidrs
   admin_role_arns        = var.admin_role_arns
+  viewer_role_arns       = var.viewer_role_arns
   node_instance_types    = var.node_instance_types
   node_capacity_type     = var.node_capacity_type
   node_min_size          = var.node_min_size

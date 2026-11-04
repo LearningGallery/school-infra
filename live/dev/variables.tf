@@ -25,6 +25,12 @@ variable "public_access_cidrs" {
   default = []
 }
 
+variable "viewer_role_arns" {
+  description = "Principals with read-only access to the cluster's Kubernetes resources, e.g. an SSO role for the console view."
+  type        = list(string)
+  default     = []
+}
+
 variable "admin_role_arns" {
   type    = list(string)
   default = []

@@ -42,6 +42,12 @@ variable "admin_role_arns" {
   default     = []
 }
 
+variable "viewer_role_arns" {
+  description = "IAM principals granted read-only access to every Kubernetes resource (AmazonEKSAdminViewPolicy), for example people who only need the console view. For an SSO role use the FULL ARN including the aws-reserved/sso.amazonaws.com/<region>/ path (EKS access entries reject the path-less form). Note this includes reading Secrets."
+  type        = list(string)
+  default     = []
+}
+
 variable "node_instance_types" {
   type    = list(string)
   default = ["t3.medium"]
