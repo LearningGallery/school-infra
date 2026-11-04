@@ -146,6 +146,27 @@ resource "aws_eks_access_policy_association" "admin" {
   depends_on = [aws_eks_access_entry.admin]
 }
 
+resource "aws_eks_access_entry" "viewer" {
+  for_each      = toset(var.viewer_role_arns)
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value
+  type          = "STANDARD"
+  tags          = var.tags
+}
+
+resource "aws_eks_access_policy_association" "viewer" {
+  for_each      = toset(var.viewer_role_arns)
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value
+  policy_arn    = "arn:${data.aws_partition.current.partition}:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.viewer]
+}
+
 # ---- IRSA: pods can assume IAM roles through the cluster's OIDC issuer ----
 resource "aws_iam_openid_connect_provider" "irsa" {
   url            = aws_eks_cluster.this.identity[0].oidc[0].issuer

@@ -14,6 +14,10 @@ on:
         type: choice
         options: [dev, staging, production]
         default: dev
+      allow_destroy:
+        description: Allow the plan to delete resources (leave off unless a deletion is intended)
+        type: boolean
+        default: false
 
 concurrency:
   group: apply
@@ -29,8 +33,10 @@ jobs:
       id-token: write
       contents: read
     uses: ./.github/workflows/_apply.yml
+    secrets: inherit # TFVARS_JSON and PLAN_ARTIFACT_KEY are secrets; a called workflow does not see them otherwise
     with:
       env: ${{ inputs.environment }}
+      allow_destroy: ${{ inputs.allow_destroy }}
 
   dev:
     if: github.event_name == 'push'
@@ -38,6 +44,7 @@ jobs:
       id-token: write
       contents: read
     uses: ./.github/workflows/_apply.yml
+    secrets: inherit # TFVARS_JSON and PLAN_ARTIFACT_KEY are secrets; a called workflow does not see them otherwise
     with:
       env: dev
 
@@ -48,6 +55,7 @@ jobs:
       id-token: write
       contents: read
     uses: ./.github/workflows/_apply.yml
+    secrets: inherit # TFVARS_JSON and PLAN_ARTIFACT_KEY are secrets; a called workflow does not see them otherwise
     with:
       env: staging
 
@@ -58,5 +66,6 @@ jobs:
       id-token: write
       contents: read
     uses: ./.github/workflows/_apply.yml
+    secrets: inherit # TFVARS_JSON and PLAN_ARTIFACT_KEY are secrets; a called workflow does not see them otherwise
     with:
       env: production

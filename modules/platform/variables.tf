@@ -42,6 +42,12 @@ variable "public_access_cidrs" {
   default = []
 }
 
+variable "viewer_role_arns" {
+  description = "Principals with read-only access to the cluster's Kubernetes resources (EKS AdminView policy)."
+  type        = list(string)
+  default     = []
+}
+
 variable "admin_role_arns" {
   description = "IAM roles with cluster-admin (SSO permission set role, break-glass role)."
   type        = list(string)
