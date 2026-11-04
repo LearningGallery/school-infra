@@ -97,7 +97,16 @@ jobs:
           [ -n "${lbs}" ] && aws elbv2 wait load-balancers-deleted --load-balancer-arns ${lbs}
           for arn in $(aws elbv2 describe-target-groups --query 'TargetGroups[].TargetGroupArn' --output text); do
             owner=$(aws elbv2 describe-tags --resource-arns "${arn}" --query "TagDescriptions[0].Tags[?Key=='${TAG}'].Value | [0]" --output text)
-            if [ "${owner}" = "${CLUSTER}" ]; then echo "Deleting target group ${arn##*/}"; aws elbv2 delete-target-group --target-group-arn "${arn}"; fi
+            if [ "${owner}" = "${CLUSTER}" ]; then
+              echo "Deleting target group ${arn##*/}"
+              # A deleted load balancer returns before AWS has released its listener rules, so the first tries can say
+              # ResourceInUse for a minute or two. Retry; fail with the real error if it never clears.
+              for i in $(seq 1 15); do
+                if out=$(aws elbv2 delete-target-group --target-group-arn "${arn}" 2>&1); then break; fi
+                if [ "${i}" = 15 ]; then echo "::error::could not delete target group ${arn##*/}: ${out}"; exit 1; fi
+                echo "Target group ${arn##*/} still in use, waiting (${i}/15)"; sleep 20
+              done
+            fi
           done
           # The network interfaces of a deleted load balancer linger for a few minutes and hold its security groups.
           for sg in $(aws ec2 describe-security-groups --filters "Name=tag-key,Values=${TAG}" "Name=tag:${TAG},Values=${CLUSTER}" --query 'SecurityGroups[].GroupId' --output text); do
@@ -129,7 +138,20 @@ jobs:
           terraform show -json tfdestroy | jq -r '.resource_changes[] | select(.change.actions | index("delete")) | .address' \
             | sed -E 's/[0-9]{12}/************/g' | sed -E 's/\[.*//' | sort | uniq -c | sort -rn | head -40
           echo "Total resources to delete: $(terraform show -json tfdestroy | jq '[.resource_changes[] | select(.change.actions | index("delete"))] | length')"
-          terraform apply -input=false -lock-timeout=5m tfdestroy
+          if ! terraform apply -input=false -lock-timeout=5m tfdestroy; then
+            # Seen on the first real teardown: the load balancer controller's shared backend security group was still in
+            # the VPC, so the VPC delete failed after the rest was gone. Remove any security group still tagged for this
+            # cluster, then plan and apply once more (the saved plan is stale after a partial apply).
+            echo "::warning::terraform destroy failed; removing security groups still tagged for the cluster and retrying once"
+            for sg in $(aws ec2 describe-security-groups --filters "Name=tag:elbv2.k8s.aws/cluster,Values=school-${TARGET_ENV}" --query 'SecurityGroups[].GroupId' --output text); do
+              for i in $(seq 1 6); do
+                if aws ec2 delete-security-group --group-id "${sg}" 2>/dev/null; then echo "Deleted security group ${sg}"; break; fi
+                echo "Security group ${sg} still in use, waiting (${i}/6)"; sleep 20
+              done
+            done
+            terraform plan -destroy -input=false -lock-timeout=5m -out=tfdestroy
+            terraform apply -input=false -lock-timeout=5m tfdestroy
+          fi
           rm -f tfdestroy
 
       - name: 5. Remove what Terraform never owned
